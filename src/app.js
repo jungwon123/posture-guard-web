@@ -173,14 +173,17 @@ const tuneDefaults = {};
 TUNE_KNOBS.forEach((k) => { tuneDefaults[k.key] = k.obj()[k.key]; });
 const tuneLoad = () => { try { return JSON.parse(localStorage.getItem("pg_tune") || "{}"); } catch { return {}; } };
 const tuneApply = (vals) => TUNE_KNOBS.forEach((k) => { if (Number.isFinite(vals[k.key])) k.obj()[k.key] = vals[k.key]; });
-{
+if (import.meta.env.DEV) { // 튜닝은 개발 전용 — 프로덕션 빌드에선 ?tune 무시·패널 미노출·저장값 미적용
   const q = new URLSearchParams(location.search).get("tune");
   if (q === "1") localStorage.setItem("pg_tune_on", "1");
   else if (q === "0") { localStorage.removeItem("pg_tune_on"); localStorage.removeItem("pg_tune"); }
+  tuneApply(tuneLoad()); // 저장된 튜닝값을 부팅 시 적용 (패널 표시 여부와 무관)
+  window.__pgTune = { TUNE3D, TUNING, DRIFT, defaults: tuneDefaults }; // 디버그·검증용
+  if (localStorage.getItem("pg_tune_on") === "1") buildTunePanel();
+} else {
+  // 튜닝을 써본 테스터 기기에 남은 값이 판정을 오염시키지 않게 정리
+  localStorage.removeItem("pg_tune_on"); localStorage.removeItem("pg_tune");
 }
-tuneApply(tuneLoad()); // 저장된 튜닝값을 부팅 시 적용 (패널 표시 여부와 무관)
-window.__pgTune = { TUNE3D, TUNING, DRIFT, defaults: tuneDefaults }; // 디버그·검증용
-if (localStorage.getItem("pg_tune_on") === "1") buildTunePanel();
 function buildTunePanel() {
   const p = document.createElement("div");
   p.id = "tune-panel";
