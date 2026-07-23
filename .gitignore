@@ -1,2 +1,10 @@
-.vercel
+node_modules/
+dist/
+.vercel/
 .env*
+*.log
+.DS_Store
+.omc/
+**/.omc/
+.claude/
+**/.claude/

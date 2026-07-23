@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-build:
+    name: 테스트·빌드
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: 유닛 테스트 (판정·과목·홍채·드리프트·논문반영)
+        run: |
+          for f in test/*.mjs; do
+            echo "== $f"
+            node "$f"
+          done
+      - name: 프로덕션 빌드
+        run: npm run build
