@@ -13,6 +13,7 @@ export default function Controls() {
           <button id="btn-pip" disabled>미니 모드 (PiP)</button>
           <button id="btn-face">얼굴 가리기</button>
           <button id="btn-report">오늘 리포트</button>
+          <button id="btn-tl" title="이번 세션을 짧은 타임랩스 영상으로 만들어 공유해요">타임랩스 인증</button>
         </div>
       </details>
       <div id="msg">영상은 저장되지 않습니다.</div>
