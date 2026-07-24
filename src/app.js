@@ -662,18 +662,17 @@ function showSessionSummary() {
     return;
   }
   const ratio = rep.ratio !== null ? `${Math.round(rep.ratio * 100)}%` : "-";
-  const tlBtn = tlEnabled && tlx.frameCount() >= tlx.TL.MIN_FRAMES
-    ? `<button id="btn-tl-make" class="primary" style="margin-top:12px">타임랩스 인증 만들기</button>` : "";
+  const tlBtn = `<button id="btn-tl-make" class="primary" style="margin-top:12px">인증 공유하기</button>`;
   centerPop(`<div class="cp-title">오늘 측정을 종료했어요</div>
     <div class="cp-summary">
       <div class="cp-stat"><b>${(rep.good / 60).toFixed(0)}분</b><span>바른 자세</span></div>
       <div class="cp-stat"><b>${ratio}</b><span>바름 비율</span></div>
       <div class="cp-stat"><b>${(rep.watched / 60).toFixed(0)}분</b><span>총 시간</span></div>
     </div>
-    <div class="cp-sub">카메라가 꺼졌어요 · 기록은 저장됐어요 · 자세히는 [오늘 리포트]</div>${tlBtn}`, tlBtn ? 8000 : 3600);
+    <div class="cp-sub">카메라가 꺼졌어요 · 기록은 저장됐어요 · 자세히는 [오늘 리포트]</div>${tlBtn}`, 8000);
   document.getElementById("btn-tl-make")?.addEventListener("click", () => {
     els.centerPop.classList.remove("show");
-    openTimelapseSheet();
+    openShareSheet();
   });
 }
 
@@ -1921,55 +1920,100 @@ els.setBlink.onchange = () => {
 };
 $("btn-report-close").onclick = () => els.reportOverlay.classList.remove("open");
 
-// ── 타임랩스 시트 — 인코딩 진행률 → 미리보기 → 공유/저장 (전 과정 온디바이스) ──
-let tlSheetBusy = false;
-function openTimelapseSheet() {
-  let sheet = $("tl-sheet");
-  if (!sheet) {
-    sheet = document.createElement("div");
-    sheet.id = "tl-sheet";
-    sheet.innerHTML = `
-      <div class="tl-card">
-        <div class="tl-head"><span>공부 인증 타임랩스</span><button id="tl-close">닫기</button></div>
-        <div class="tl-body">
-          <div id="tl-progress-wrap"><div class="tl-bar"><div id="tl-progress"></div></div><div id="tl-progress-text">준비 중…</div></div>
-          <video id="tl-video" playsinline controls loop style="display:none"></video>
-          <div id="tl-note"></div>
-        </div>
-        <div class="tl-foot">
-          <button id="tl-share" class="primary" disabled>공유하기</button>
-          <button id="tl-save" disabled>저장</button>
-        </div>
-      </div>`;
-    document.body.appendChild(sheet);
-    $("tl-close").onclick = () => sheet.classList.remove("open");
-    $("tl-share").onclick = async () => {
-      if (!tlResult) return;
-      const ok = await tlx.share(tlResult).catch(() => false);
-      if (!ok) { // 공유 시트 미지원(데스크톱) — 파일 저장 폴백
-        tlx.download(tlResult);
-        $("tl-note").textContent = "공유 시트가 없는 환경이라 파일로 저장했어요. 폰으로 옮겨 인스타에 올려주세요.";
-      }
-    };
-    $("tl-save").onclick = () => tlResult && tlx.download(tlResult);
-  }
+// ── 인증 공유 시트 — [타임랩스 영상 | 오늘 통계 카드] 탭, 미리보기 → 공유/저장 (전 과정 온디바이스) ──
+let tlSheetBusy = false, shareMode = "tl", statsResult = null;
+const currentShare = () => (shareMode === "tl" ? tlResult : statsResult);
+function buildShareSheet() {
+  const sheet = document.createElement("div");
+  sheet.id = "tl-sheet";
+  sheet.innerHTML = `
+    <div class="tl-card">
+      <div class="tl-head"><span>공부 인증 공유</span><button id="tl-close">닫기</button></div>
+      <div class="tl-tabs">
+        <button id="tl-tab-video">타임랩스 영상</button>
+        <button id="tl-tab-stats">오늘 통계 카드</button>
+      </div>
+      <div class="tl-body">
+        <div id="tl-progress-wrap" style="display:none"><div class="tl-bar"><div id="tl-progress"></div></div><div id="tl-progress-text">준비 중…</div></div>
+        <video id="tl-video" playsinline controls loop style="display:none"></video>
+        <img id="tl-img" alt="오늘 통계 카드" style="display:none" />
+        <div id="tl-note"></div>
+      </div>
+      <div class="tl-foot">
+        <button id="tl-share" class="primary" disabled>공유하기</button>
+        <button id="tl-save" disabled>저장</button>
+      </div>
+    </div>`;
+  document.body.appendChild(sheet);
+  $("tl-close").onclick = () => sheet.classList.remove("open");
+  $("tl-tab-video").onclick = () => pickShareMode("tl");
+  $("tl-tab-stats").onclick = () => pickShareMode("stats");
+  $("tl-share").onclick = async () => {
+    const r = currentShare();
+    if (!r) return;
+    const ok = await tlx.share(r).catch(() => false);
+    if (!ok) { // 공유 시트 미지원(데스크톱) — 파일 저장 폴백
+      tlx.download(r);
+      $("tl-note").textContent = "공유 시트가 없는 환경이라 파일로 저장했어요. 폰으로 옮겨 인스타에 올려주세요.";
+    }
+  };
+  $("tl-save").onclick = () => currentShare() && tlx.download(currentShare());
+  return sheet;
+}
+async function openShareSheet() {
+  const sheet = $("tl-sheet") || buildShareSheet();
   sheet.classList.add("open");
+  const n = await tlx.storedCount();
+  pickShareMode(n >= tlx.TL.MIN_FRAMES ? "tl" : "stats"); // 영상 기록이 충분하면 영상 탭, 아니면 통계 탭부터
+}
+function shareUiReset() {
+  $("tl-progress-wrap").style.display = "none";
+  $("tl-video").style.display = "none";
+  $("tl-img").style.display = "none";
+  $("tl-note").textContent = "";
+  $("tl-share").disabled = true; $("tl-save").disabled = true;
+  $("tl-tab-video").classList.toggle("on", shareMode === "tl");
+  $("tl-tab-stats").classList.toggle("on", shareMode === "stats");
+}
+async function pickShareMode(mode) {
+  shareMode = mode;
+  shareUiReset();
+  if (mode === "stats") {
+    const rep = computeReport(events, dayStartSec(), nowSec());
+    statsResult = await tlx.makeStatsCard({
+      date: new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" }),
+      time: tlx.hudTime(rep.watched),
+      goodMin: `${Math.round(rep.good / 60)}분`,
+      ratio: rep.ratio !== null ? `${Math.round(rep.ratio * 100)}%` : "-",
+      fairy: els.fairyImg,
+    });
+    const img = $("tl-img");
+    img.src = URL.createObjectURL(statsResult.blob);
+    img.style.display = "";
+    $("tl-share").disabled = false; $("tl-save").disabled = false;
+    return;
+  }
+  // 타임랩스 탭
+  const n = await tlx.storedCount();
+  if (n < tlx.TL.MIN_FRAMES) {
+    $("tl-note").textContent = `아직 영상 기록이 부족해요 — 1분 이상 공부하면 만들 수 있어요 (현재 ${n}장 · 카메라에 몸이 보여야 기록돼요)`;
+    return;
+  }
+  if (tlResult) { showTlResult(); return; } // 같은 세션 재오픈 — 재인코딩 생략
   startTlEncode();
 }
 async function startTlEncode() {
   if (tlSheetBusy) return;
-  if (tlResult) { showTlResult(); return; } // 같은 세션 재오픈 — 재인코딩 생략
   tlSheetBusy = true;
   const bar = $("tl-progress"), txt = $("tl-progress-text");
-  $("tl-share").disabled = true; $("tl-save").disabled = true;
-  $("tl-progress-wrap").style.display = ""; $("tl-video").style.display = "none"; $("tl-note").textContent = "";
+  $("tl-progress-wrap").style.display = "";
   try {
     tlResult = await tlx.encode((i, n) => {
       const p = Math.round((i / n) * 100);
       bar.style.width = `${p}%`;
       txt.textContent = `영상 만드는 중… ${p}% — 기기 안에서만 처리돼요`;
     });
-    showTlResult();
+    if (shareMode === "tl") showTlResult();
   } catch (e) {
     txt.textContent = "영상 생성에 실패했어요: " + (e?.message || e);
   } finally { tlSheetBusy = false; }
@@ -1980,24 +2024,12 @@ function showTlResult() {
   video.src = URL.createObjectURL(tlResult.blob);
   video.style.display = "";
   $("tl-save").disabled = false;
-  $("tl-share").disabled = !tlResult.mp4;
-  $("tl-note").textContent = (tlResult.mp4
+  $("tl-share").disabled = !tlResult.shareable;
+  $("tl-note").textContent = (tlResult.shareable
     ? "" : "이 브라우저는 mp4 인코딩이 안 돼 webm으로 저장돼요 — 인스타 업로드는 mp4 변환 후 가능해요. ")
     + `${Math.round(tlx.durationSec(tlResult.frames))}초 · ${tlResult.ext}`;
 }
-$("btn-tl").onclick = async () => {
-  if (!tlEnabled) {
-    centerPop(`<div class="cp-title">타임랩스 기록이 꺼져 있어요</div><div class="cp-sub">이 기기에서 기록이 비활성화돼 있어요</div>`, 2600);
-    return;
-  }
-  const n = await tlx.storedCount(); // IndexedDB 실측 — 리로드 후에도 직전 세션 프레임 유효
-  if (n < tlx.TL.MIN_FRAMES) {
-    centerPop(`<div class="cp-title">아직 영상으로 만들 기록이 부족해요</div>
-      <div class="cp-sub">1분 이상 공부하면 만들 수 있어요<br>(현재 ${n}장 · 카메라에 몸이 보여야 기록돼요)</div>`, 3200);
-    return;
-  }
-  openTimelapseSheet();
-};
+$("btn-tl").onclick = () => openShareSheet();
 els.reportOverlay.onclick = (e) => { if (e.target === els.reportOverlay) els.reportOverlay.classList.remove("open"); };
 // 보유 목록 그리드 — 카드 클릭으로 즉시 장착 (이벤트 위임: innerHTML 재렌더에도 유지)
 $("equip-grid")?.addEventListener("click", (e) => {

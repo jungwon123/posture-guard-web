@@ -5,6 +5,7 @@ export default function Controls() {
       <div id="controls">
         <button id="btn-start" className="primary">공부 시작</button>
         <button id="btn-calib" disabled title="평소 공부하는 자세로 등과 목만 곧게 펴고 5초간 유지하세요. 이 자세가 '내 공부 바른자세' 기준이 됩니다. 화면과 책을 오가며 공부하면 자세가 바뀔 때 다시 잡아요.">바른자세 기준 등록 (5초)</button>
+        <button id="btn-tl" title="타임랩스 영상·오늘 통계 카드를 만들어 인스타 등으로 공유해요">인증 공유</button>
       </div>
       <details className="more-controls">
         <summary>더보기 · 알림 · 미니 모드 · 얼굴 가리기</summary>
@@ -13,7 +14,6 @@ export default function Controls() {
           <button id="btn-pip" disabled>미니 모드 (PiP)</button>
           <button id="btn-face">얼굴 가리기</button>
           <button id="btn-report">오늘 리포트</button>
-          <button id="btn-tl" title="이번 세션을 짧은 타임랩스 영상으로 만들어 공유해요">타임랩스 인증</button>
         </div>
       </details>
       <div id="msg">영상은 저장되지 않습니다.</div>

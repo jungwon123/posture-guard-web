@@ -192,7 +192,43 @@ export async function encode(onProgress) {
   await new Promise((r) => setTimeout(r, 300)); // 마지막 프레임 플러시
   rec.stop();
   await done;
-  return { blob: new Blob(chunks, { type: picked.mime.split(";")[0] }), ...picked, frames: keys.length };
+  return { blob: new Blob(chunks, { type: picked.mime.split(";")[0] }), ...picked, shareable: picked.mp4, frames: keys.length };
+}
+
+// ── 오늘 통계 카드 (9:16 PNG, 즉시 생성) — 타임랩스와 같은 규격으로 인스타 스토리 공유용 ──
+export async function makeStatsCard(info) {
+  const { W, H } = TL;
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const ctx = c.getContext("2d");
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, "#101418"); g.addColorStop(1, "#1a222b");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  if (!logoImg) { logoImg = new Image(); logoImg.src = "/assets/ui/logo.png"; }
+  try { await logoImg.decode(); } catch {}
+  ctx.textAlign = "center";
+  if (logoImg.naturalWidth) ctx.drawImage(logoImg, W / 2 - 44, 130, 88, 88);
+  ctx.fillStyle = "#e7ecf1"; ctx.font = "800 52px sans-serif";
+  ctx.fillText("척추요정 공부 인증", W / 2, 300);
+  ctx.fillStyle = "#8b98a5"; ctx.font = "30px sans-serif";
+  ctx.fillText(info.date, W / 2, 350);
+  // 중앙 — 큰 오늘 공부 시간
+  ctx.fillStyle = "#8b98a5"; ctx.font = "700 36px sans-serif";
+  ctx.fillText("오늘 공부 시간", W / 2, 560);
+  ctx.fillStyle = "#e7ecf1"; ctx.font = "800 132px sans-serif";
+  ctx.fillText(info.time, W / 2, 700);
+  // 스탯 2단 — 바른 자세 시간 · 바름 비율
+  const stat = (x, big, small) => {
+    ctx.fillStyle = "#5abe5a"; ctx.font = "800 64px sans-serif"; ctx.fillText(big, x, 880);
+    ctx.fillStyle = "#8b98a5"; ctx.font = "600 30px sans-serif"; ctx.fillText(small, x, 930);
+  };
+  stat(W / 2 - 160, info.goodMin, "바른 자세");
+  stat(W / 2 + 160, info.ratio, "바름 비율");
+  // 요정
+  if (info.fairy?.complete && info.fairy.naturalWidth) ctx.drawImage(info.fairy, W / 2 - 100, 990, 200, 200);
+  ctx.fillStyle = "#5abe5a"; ctx.font = "700 30px sans-serif";
+  ctx.fillText("posture-guard-rust.vercel.app", W / 2, H - 130);
+  const blob = await new Promise((r) => c.toBlob(r, "image/png"));
+  return { blob, ext: "png", shareable: true, frames: 0 };
 }
 
 // ── 공유/저장 ──
