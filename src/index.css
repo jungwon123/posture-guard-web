@@ -147,6 +147,7 @@
   }
   #center-pop.show { display: flex; }
   .center-pop-card {
+    pointer-events: auto; /* 오버레이는 클릭 통과, 카드 안 버튼([인증 공유하기])은 눌리게 */
     background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
     padding: 18px 22px; text-align: center; max-width: 300px;
     box-shadow: 0 14px 40px rgba(12, 16, 24, .6); animation: cpPop .28s ease;

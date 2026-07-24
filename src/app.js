@@ -656,13 +656,18 @@ function stop() {
 // 측정 종료 직후 — 오늘 사용 요약을 중앙 팝업으로 (QC: 종료 후 세션 요약 안내)
 function showSessionSummary() {
   const rep = computeReport(events, dayStartSec(), nowSec());
-  if (rep.watched <= 5) { // 실사용이 거의 없으면 요약 생략
+  const tlBtn = `<button id="btn-tl-make" class="primary" style="margin-top:12px">인증 공유하기</button>`;
+  const wireTlMake = () => document.getElementById("btn-tl-make")?.addEventListener("click", () => {
+    els.centerPop.classList.remove("show");
+    openShareSheet();
+  });
+  if (rep.watched <= 5) { // 실사용이 거의 없으면 요약 생략 (인증 공유 진입은 유지)
     centerPop(`<div class="cp-title">측정을 종료했어요</div>
-      <div class="cp-sub">카메라가 꺼졌어요 · 기록은 저장됐어요. 수고했어요!</div>`, 2600);
+      <div class="cp-sub">카메라가 꺼졌어요 · 기록은 저장됐어요. 수고했어요!</div>${tlBtn}`, 8000);
+    wireTlMake();
     return;
   }
   const ratio = rep.ratio !== null ? `${Math.round(rep.ratio * 100)}%` : "-";
-  const tlBtn = `<button id="btn-tl-make" class="primary" style="margin-top:12px">인증 공유하기</button>`;
   centerPop(`<div class="cp-title">오늘 측정을 종료했어요</div>
     <div class="cp-summary">
       <div class="cp-stat"><b>${(rep.good / 60).toFixed(0)}분</b><span>바른 자세</span></div>
@@ -670,10 +675,7 @@ function showSessionSummary() {
       <div class="cp-stat"><b>${(rep.watched / 60).toFixed(0)}분</b><span>총 시간</span></div>
     </div>
     <div class="cp-sub">카메라가 꺼졌어요 · 기록은 저장됐어요 · 자세히는 [오늘 리포트]</div>${tlBtn}`, 8000);
-  document.getElementById("btn-tl-make")?.addEventListener("click", () => {
-    els.centerPop.classList.remove("show");
-    openShareSheet();
-  });
+  wireTlMake();
 }
 
 // ── 카메라 백그라운드 복귀 재개 ──

@@ -8,7 +8,7 @@ export const TL = {
   FPS: 30,          // 출력 프레임률
   W: 720, H: 1280,  // 출력 해상도 (인스타 릴스 최소 권장)
   JPEG_Q: 0.68,
-  MIN_FRAMES: 30,   // 이 미만이면 만들기 버튼 미노출 (≈1분 공부)
+  MIN_FRAMES: 24,   // 약 50초 분량 — "1분 공부"가 예열 손실을 감안해도 통과하는 여유치
 };
 
 export class FrameBudget {
