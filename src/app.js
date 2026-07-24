@@ -10,6 +10,7 @@ import { AbsSmoother, extractAbsolute, finishAbsRef, absPenalty, absDominant, he
   } from "./posture3d.js";
 import { Rewards, MELODIES, SKINS, SHOP, TIERS, computeReport, hurtMotion } from "./reward.js";
 import { getAuth, syncPull, mergeData, startSyncLoop, writeDailySnapshot, pushDaily, localDateStr, recalcTodaySnapshot } from "./sync.js";
+import * as tlx from "./timelapse.js"; // 타임랩스 공부 인증 — 전 과정 온디바이스
 import { computeSubjects, readSubjLog, readSubjects, writeDailySubjSnapshot } from "./subjects.js";
 
 // React 마운트 후 1회 실행 (엔진 계층 — 카메라 루프·판정·알림·PiP)
@@ -122,6 +123,10 @@ const MODEL_TIER = localStorage.getItem("pg_model") === "lite" ? "lite" : "full"
 // 측면 모드(베타)는 제거됨 — 남은 키 정리
 localStorage.removeItem("pg_cam_mode"); localStorage.removeItem("pg_side_ref");
 const hasBaseline = () => !!judge;
+
+// ── 타임랩스 공부 인증 — 기본 켜짐(pg_tl="0"으로 끔). 캡처·인코딩·공유 전부 기기 안 ──
+let tlEnabled = localStorage.getItem("pg_tl") !== "0";
+let tlDateStr = "", tlResult = null; // 세션 날짜 라벨 · 마지막 인코딩 결과(재공유용)
 
 // ── 슬로우 드리프트 감지 상태 — 수 분에 걸쳐 서서히 무너지는 자세(임계값 아래 잠행)를 잡는다 ──
 const DRIFT = {
@@ -587,6 +592,11 @@ async function start() {
   show(els.camRetry, false); // 이전 시작 실패 안내가 남아있으면 정리
   resetCamRetryText();
   resetDrift(); // 지난 세션의 드리프트 창 폐기
+  if (tlEnabled) { // 타임랩스 세션 시작 — IndexedDB 미지원 기기는 조용히 끔
+    tlResult = null;
+    tlDateStr = new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" });
+    tlx.beginSession().catch(() => { tlEnabled = false; });
+  }
   running = true;
   sessionStartSec = nowSec(); // 세션 타이머 기준
   els.btnStart.textContent = "공부 종료";
@@ -652,13 +662,18 @@ function showSessionSummary() {
     return;
   }
   const ratio = rep.ratio !== null ? `${Math.round(rep.ratio * 100)}%` : "-";
+  const tlBtn = `<button id="btn-tl-make" class="primary" style="margin-top:12px">인증 공유하기</button>`;
   centerPop(`<div class="cp-title">오늘 측정을 종료했어요</div>
     <div class="cp-summary">
       <div class="cp-stat"><b>${(rep.good / 60).toFixed(0)}분</b><span>바른 자세</span></div>
       <div class="cp-stat"><b>${ratio}</b><span>바름 비율</span></div>
       <div class="cp-stat"><b>${(rep.watched / 60).toFixed(0)}분</b><span>총 시간</span></div>
     </div>
-    <div class="cp-sub">카메라가 꺼졌어요 · 기록은 저장됐어요 · 자세히는 [오늘 리포트]</div>`, 3600);
+    <div class="cp-sub">카메라가 꺼졌어요 · 기록은 저장됐어요 · 자세히는 [오늘 리포트]</div>${tlBtn}`, 8000);
+  document.getElementById("btn-tl-make")?.addEventListener("click", () => {
+    els.centerPop.classList.remove("show");
+    openShareSheet();
+  });
 }
 
 // ── 카메라 백그라운드 복귀 재개 ──
@@ -945,6 +960,16 @@ function tick() {
     const badCand = sm.cand?.[0] === "BAD";
     const face = rewards.fairy(state, dur, badCand);
     driftTick(absM, absRef, state, now); // 슬로우 드리프트 — 임계값 아래로 서서히 무너지는 추세 감지
+    // 타임랩스 프레임 — 사람이 실제로 보일 때만(빈자리 스킵), 캘리브 중 제외.
+    // 상태머신(AWAY) 대신 이번 틱 검출(camSample)로 판정 — 기준 미등록이면 AWAY에 갇혀 캡처가 영영 안 되는 버그 방지.
+    if (tlEnabled && calibUntil === null && camSample && sessionStartSec !== null) {
+      tlx.maybeCapture(els.cam, {
+        timer: tlx.hudTime(now - sessionStartSec),
+        sub: score !== null ? `자세 점수 ${Math.round(score)}점` : "",
+        date: tlDateStr,
+        fairy: els.fairyImg,
+      }, now);
+    }
 
     // 라이브 자세 노출 — 돌아다니는 요정 도우미(Buddy)가 읽어 문제 부위를 말풍선으로 콕 짚어줌
     // 말풍선용 worst = '가장 크게 감점 중인' 신호. core z-score와 절대 게이트의 '가중 기여도'를
@@ -1894,6 +1919,117 @@ els.setBlink.onchange = () => {
   }
 };
 $("btn-report-close").onclick = () => els.reportOverlay.classList.remove("open");
+
+// ── 인증 공유 시트 — [타임랩스 영상 | 오늘 통계 카드] 탭, 미리보기 → 공유/저장 (전 과정 온디바이스) ──
+let tlSheetBusy = false, shareMode = "tl", statsResult = null;
+const currentShare = () => (shareMode === "tl" ? tlResult : statsResult);
+function buildShareSheet() {
+  const sheet = document.createElement("div");
+  sheet.id = "tl-sheet";
+  sheet.innerHTML = `
+    <div class="tl-card">
+      <div class="tl-head"><span>공부 인증 공유</span><button id="tl-close">닫기</button></div>
+      <div class="tl-tabs">
+        <button id="tl-tab-video">타임랩스 영상</button>
+        <button id="tl-tab-stats">오늘 통계 카드</button>
+      </div>
+      <div class="tl-body">
+        <div id="tl-progress-wrap" style="display:none"><div class="tl-bar"><div id="tl-progress"></div></div><div id="tl-progress-text">준비 중…</div></div>
+        <video id="tl-video" playsinline controls loop style="display:none"></video>
+        <img id="tl-img" alt="오늘 통계 카드" style="display:none" />
+        <div id="tl-note"></div>
+      </div>
+      <div class="tl-foot">
+        <button id="tl-share" class="primary" disabled>공유하기</button>
+        <button id="tl-save" disabled>저장</button>
+      </div>
+    </div>`;
+  document.body.appendChild(sheet);
+  $("tl-close").onclick = () => sheet.classList.remove("open");
+  $("tl-tab-video").onclick = () => pickShareMode("tl");
+  $("tl-tab-stats").onclick = () => pickShareMode("stats");
+  $("tl-share").onclick = async () => {
+    const r = currentShare();
+    if (!r) return;
+    const ok = await tlx.share(r).catch(() => false);
+    if (!ok) { // 공유 시트 미지원(데스크톱) — 파일 저장 폴백
+      tlx.download(r);
+      $("tl-note").textContent = "공유 시트가 없는 환경이라 파일로 저장했어요. 폰으로 옮겨 인스타에 올려주세요.";
+    }
+  };
+  $("tl-save").onclick = () => currentShare() && tlx.download(currentShare());
+  return sheet;
+}
+async function openShareSheet() {
+  const sheet = $("tl-sheet") || buildShareSheet();
+  sheet.classList.add("open");
+  const n = await tlx.storedCount();
+  pickShareMode(n >= tlx.TL.MIN_FRAMES ? "tl" : "stats"); // 영상 기록이 충분하면 영상 탭, 아니면 통계 탭부터
+}
+function shareUiReset() {
+  $("tl-progress-wrap").style.display = "none";
+  $("tl-video").style.display = "none";
+  $("tl-img").style.display = "none";
+  $("tl-note").textContent = "";
+  $("tl-share").disabled = true; $("tl-save").disabled = true;
+  $("tl-tab-video").classList.toggle("on", shareMode === "tl");
+  $("tl-tab-stats").classList.toggle("on", shareMode === "stats");
+}
+async function pickShareMode(mode) {
+  shareMode = mode;
+  shareUiReset();
+  if (mode === "stats") {
+    const rep = computeReport(events, dayStartSec(), nowSec());
+    statsResult = await tlx.makeStatsCard({
+      date: new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" }),
+      time: tlx.hudTime(rep.watched),
+      goodMin: `${Math.round(rep.good / 60)}분`,
+      ratio: rep.ratio !== null ? `${Math.round(rep.ratio * 100)}%` : "-",
+      fairy: els.fairyImg,
+    });
+    const img = $("tl-img");
+    img.src = URL.createObjectURL(statsResult.blob);
+    img.style.display = "";
+    $("tl-share").disabled = false; $("tl-save").disabled = false;
+    return;
+  }
+  // 타임랩스 탭
+  const n = await tlx.storedCount();
+  if (n < tlx.TL.MIN_FRAMES) {
+    $("tl-note").textContent = `아직 영상 기록이 부족해요 — 1분 이상 공부하면 만들 수 있어요 (현재 ${n}장 · 카메라에 몸이 보여야 기록돼요)`;
+    return;
+  }
+  if (tlResult) { showTlResult(); return; } // 같은 세션 재오픈 — 재인코딩 생략
+  startTlEncode();
+}
+async function startTlEncode() {
+  if (tlSheetBusy) return;
+  tlSheetBusy = true;
+  const bar = $("tl-progress"), txt = $("tl-progress-text");
+  $("tl-progress-wrap").style.display = "";
+  try {
+    tlResult = await tlx.encode((i, n) => {
+      const p = Math.round((i / n) * 100);
+      bar.style.width = `${p}%`;
+      txt.textContent = `영상 만드는 중… ${p}% — 기기 안에서만 처리돼요`;
+    });
+    if (shareMode === "tl") showTlResult();
+  } catch (e) {
+    txt.textContent = "영상 생성에 실패했어요: " + (e?.message || e);
+  } finally { tlSheetBusy = false; }
+}
+function showTlResult() {
+  const video = $("tl-video");
+  $("tl-progress-wrap").style.display = "none";
+  video.src = URL.createObjectURL(tlResult.blob);
+  video.style.display = "";
+  $("tl-save").disabled = false;
+  $("tl-share").disabled = !tlResult.shareable;
+  $("tl-note").textContent = (tlResult.shareable
+    ? "" : "이 브라우저는 mp4 인코딩이 안 돼 webm으로 저장돼요 — 인스타 업로드는 mp4 변환 후 가능해요. ")
+    + `${Math.round(tlx.durationSec(tlResult.frames))}초 · ${tlResult.ext}`;
+}
+$("btn-tl").onclick = () => openShareSheet();
 els.reportOverlay.onclick = (e) => { if (e.target === els.reportOverlay) els.reportOverlay.classList.remove("open"); };
 // 보유 목록 그리드 — 카드 클릭으로 즉시 장착 (이벤트 위임: innerHTML 재렌더에도 유지)
 $("equip-grid")?.addEventListener("click", (e) => {
