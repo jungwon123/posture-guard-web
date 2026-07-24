@@ -961,8 +961,9 @@ function tick() {
     const badCand = sm.cand?.[0] === "BAD";
     const face = rewards.fairy(state, dur, badCand);
     driftTick(absM, absRef, state, now); // 슬로우 드리프트 — 임계값 아래로 서서히 무너지는 추세 감지
-    // 타임랩스 프레임 — 자리비움·캘리브 중 제외. 실제 캡처는 내부 예산(2초 간격, 상한 시 자동 솎음)
-    if (tlEnabled && calibUntil === null && state !== "AWAY" && sessionStartSec !== null) {
+    // 타임랩스 프레임 — 사람이 실제로 보일 때만(빈자리 스킵), 캘리브 중 제외.
+    // 상태머신(AWAY) 대신 이번 틱 검출(camSample)로 판정 — 기준 미등록이면 AWAY에 갇혀 캡처가 영영 안 되는 버그 방지.
+    if (tlEnabled && calibUntil === null && camSample && sessionStartSec !== null) {
       tlx.maybeCapture(els.cam, {
         timer: tlx.hudTime(now - sessionStartSec),
         sub: score !== null ? `자세 점수 ${Math.round(score)}점` : "",
@@ -1984,9 +1985,17 @@ function showTlResult() {
     ? "" : "이 브라우저는 mp4 인코딩이 안 돼 webm으로 저장돼요 — 인스타 업로드는 mp4 변환 후 가능해요. ")
     + `${Math.round(tlx.durationSec(tlResult.frames))}초 · ${tlResult.ext}`;
 }
-$("btn-tl").onclick = () => {
-  if (!tlEnabled) { els.msg.textContent = "타임랩스 기록이 꺼져 있어요 (설정 pg_tl)."; return; }
-  if (tlx.frameCount() < tlx.TL.MIN_FRAMES) { els.msg.textContent = "타임랩스를 만들려면 이번 세션에서 1분 이상 공부해 주세요."; return; }
+$("btn-tl").onclick = async () => {
+  if (!tlEnabled) {
+    centerPop(`<div class="cp-title">타임랩스 기록이 꺼져 있어요</div><div class="cp-sub">이 기기에서 기록이 비활성화돼 있어요</div>`, 2600);
+    return;
+  }
+  const n = await tlx.storedCount(); // IndexedDB 실측 — 리로드 후에도 직전 세션 프레임 유효
+  if (n < tlx.TL.MIN_FRAMES) {
+    centerPop(`<div class="cp-title">아직 영상으로 만들 기록이 부족해요</div>
+      <div class="cp-sub">1분 이상 공부하면 만들 수 있어요<br>(현재 ${n}장 · 카메라에 몸이 보여야 기록돼요)</div>`, 3200);
+    return;
+  }
   openTimelapseSheet();
 };
 els.reportOverlay.onclick = (e) => { if (e.target === els.reportOverlay) els.reportOverlay.classList.remove("open"); };

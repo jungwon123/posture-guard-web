@@ -87,10 +87,17 @@ export class FrameStore {
 // ── 캡처 세션 (app.js가 사용) ──
 let store = null, budget = null, capCanvas = null, busy = false;
 let logoImg = null;
+// 디버그 카운터 — 실기기에서 "왜 안 찍히나"를 바로 진단 (window.__tlDebug)
+const dbg = { calls: 0, notReady: 0, busySkip: 0, notDue: 0, noVideo: 0, drawn: 0, stored: 0, putErr: 0, lastErr: null };
+if (typeof window !== "undefined") window.__tlDebug = () => ({ ...dbg, hasStore: !!store, hasBudget: !!budget, busy, count: budget?.count ?? -1, gap: budget?.gap });
+
+async function ensureStore() { // clear 없이 열기 — 리로드 후에도 직전 세션 프레임 접근 가능
+  if (!store) { store = new FrameStore(); await store.open(); }
+  return store;
+}
 
 export async function beginSession() {
-  store = new FrameStore();
-  await store.open();
+  await ensureStore();
   await store.clear();
   budget = new FrameBudget();
   if (!capCanvas) { capCanvas = document.createElement("canvas"); capCanvas.width = TL.W; capCanvas.height = TL.H; }
@@ -98,23 +105,32 @@ export async function beginSession() {
 }
 
 export function frameCount() { return budget ? budget.count : 0; }
+// IndexedDB 실측 카운트 — 리로드로 세션 메모리가 날아가도 직전 세션 프레임을 셀 수 있다
+export async function storedCount() {
+  try { return await (await ensureStore()).count(); } catch { return 0; }
+}
 
 // 매 틱 호출 — 간격이 됐고 인코딩 바쁘지 않을 때만 실제 캡처
 export function maybeCapture(video, hud, now) {
-  if (!store || !budget || busy || !budget.due(now)) return;
-  if (!video.videoWidth) return;
+  dbg.calls++;
+  if (!store || !budget) { dbg.notReady++; return; }
+  if (busy) { dbg.busySkip++; return; }
+  if (!budget.due(now)) { dbg.notDue++; return; }
+  if (!video.videoWidth) { dbg.noVideo++; return; }
   busy = true;
   try {
     drawFrame(capCanvas.getContext("2d"), video, hud);
+    dbg.drawn++;
     capCanvas.toBlob(async (blob) => {
       try {
         if (blob && store) {
           await store.put(blob);
+          dbg.stored++;
           if (budget.onStored(now) === "thin") budget.onThinned(await store.thin());
         }
-      } catch {} finally { busy = false; }
+      } catch (e) { dbg.putErr++; dbg.lastErr = String(e); } finally { busy = false; }
     }, "image/jpeg", TL.JPEG_Q);
-  } catch { busy = false; }
+  } catch (e) { busy = false; dbg.lastErr = String(e); }
 }
 
 // 9:16 프레임 렌더 — 중앙 카메라 + 상단 로고·날짜 + 하단 타이머·바른자세 비율·요정
@@ -145,6 +161,7 @@ function drawFrame(ctx, video, hud) {
 
 // ── 인코딩: 저장된 프레임을 30fps로 재생하며 MediaRecorder로 굽기 ──
 export async function encode(onProgress) {
+  await ensureStore();
   const keys = await store.keys();
   if (!keys.length) throw new Error("프레임 없음");
   const picked = pickMime((m) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(m));
