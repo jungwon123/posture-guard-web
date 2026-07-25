@@ -216,6 +216,26 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
 }
 const fmtMin = (sec) => Math.round(sec / 60) + "분";
+// Chart.js 지연 로딩 — 공유 카드 만들 때만 (앱 번들에 영향 없음)
+let _ChartLib = null;
+async function loadChart() {
+  if (_ChartLib) return _ChartLib;
+  const m = await import("chart.js/auto");
+  _ChartLib = m.default || m.Chart;
+  return _ChartLib;
+}
+// 오프스크린 캔버스에 Chart.js 렌더 → 카드에 합성용
+function renderChart(w, h, config) {
+  const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+  const Chart = _ChartLib;
+  const chart = new Chart(cv.getContext("2d"), {
+    ...config,
+    options: { responsive: false, animation: false, devicePixelRatio: 1, ...config.options },
+  });
+  chart.draw();
+  return { cv, chart };
+}
+
 export async function makeStatsCard(info) {
   const { W, H } = TL;
   const c = document.createElement("canvas"); c.width = W; c.height = H;
@@ -236,64 +256,83 @@ export async function makeStatsCard(info) {
   ctx.fillText(info.time, W / 2, 278);
 
   const donut = info.donut || [], btot = info.btot || 0, daily = info.daily || [];
-  // ── 도넛: 오늘 자세 비율 (통계창과 동일) ──
-  const cx = W / 2, cy = 470, rOut = 118, rIn = 76;
-  if (btot > 0) {
-    let a0 = -Math.PI / 2;
-    donut.forEach((s) => {
-      const a1 = a0 + (s.value / btot) * Math.PI * 2;
-      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, rOut, a0, a1); ctx.closePath();
-      ctx.fillStyle = s.color; ctx.fill(); a0 = a1;
+  try { await loadChart(); } catch {}
+
+  // ── 도넛: 오늘 자세 비율 (Chart.js) ──
+  const cx = W / 2, cy = 480;
+  if (btot > 0 && _ChartLib) {
+    const dSize = 320;
+    const { cv, chart } = renderChart(dSize, dSize, {
+      type: "doughnut",
+      data: { labels: donut.map((s) => s.label), datasets: [{ data: donut.map((s) => s.value), backgroundColor: donut.map((s) => s.color), borderColor: "#14171e", borderWidth: 3, hoverOffset: 0 }] },
+      options: { cutout: "66%", plugins: { legend: { display: false }, tooltip: { enabled: false } } },
     });
-    ctx.beginPath(); ctx.arc(cx, cy, rIn, 0, Math.PI * 2); ctx.fillStyle = "#14171e"; ctx.fill(); // 가운데 구멍
-    ctx.fillStyle = "#4fd07a"; ctx.font = "800 58px sans-serif"; ctx.fillText(`${info.goodPct}%`, cx, cy + 6);
-    ctx.fillStyle = "#8b98a5"; ctx.font = "600 24px sans-serif"; ctx.fillText("바른 자세", cx, cy + 44);
+    ctx.drawImage(cv, cx - dSize / 2, cy - dSize / 2);
+    chart.destroy();
+    // 가운데 텍스트
+    ctx.fillStyle = "#4fd07a"; ctx.font = "800 62px sans-serif"; ctx.fillText(`${info.goodPct}%`, cx, cy + 8);
+    ctx.fillStyle = "#8b98a5"; ctx.font = "600 26px sans-serif"; ctx.fillText("바른 자세", cx, cy + 48);
     // 범례 2×2
     ctx.textAlign = "left";
     donut.slice(0, 4).forEach((s, i) => {
-      const lx = i % 2 === 0 ? W / 2 - 300 : W / 2 + 20, ly = 648 + Math.floor(i / 2) * 44;
-      ctx.fillStyle = s.color; ctx.beginPath(); ctx.arc(lx, ly - 8, 10, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = "#e7ecf1"; ctx.font = "24px sans-serif";
-      ctx.fillText(`${s.label} ${fmtMin(s.value)}`, lx + 24, ly);
+      const lx = i % 2 === 0 ? W / 2 - 300 : W / 2 + 20, ly = 690 + Math.floor(i / 2) * 46;
+      ctx.fillStyle = s.color; roundRect(ctx, lx - 2, ly - 20, 20, 20, 6); ctx.fill();
+      ctx.fillStyle = "#e7ecf1"; ctx.font = "25px sans-serif";
+      ctx.fillText(`${s.label} ${fmtMin(s.value)}`, lx + 30, ly - 3);
     });
     ctx.textAlign = "center";
   } else {
     ctx.fillStyle = "#8b98a5"; ctx.font = "28px sans-serif";
-    ctx.fillText("오늘 자세 기록이 아직 없어요", W / 2, cy + 6);
+    ctx.fillText("오늘 자세 기록이 아직 없어요", W / 2, cy);
   }
 
-  // ── 막대: 최근 7일 공부시간 (통계창과 동일 색/라벨) ──
+  // ── 막대: 최근 7일 공부시간 (Chart.js) ──
   ctx.textAlign = "left"; ctx.fillStyle = "#8b98a5"; ctx.font = "700 28px sans-serif";
-  ctx.fillText("최근 7일 공부시간", 70, 762);
-  const x0 = 70, x1 = W - 70, yBase = 1010, maxH = 170;
-  const maxMin = Math.max(30, ...daily.map((d) => d.min));
-  const niceMax = Math.ceil(maxMin / 30) * 30;
-  const slot = (x1 - x0) / 7, bw = slot * 0.54;
-  ctx.strokeStyle = "#2a323c"; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(x0, yBase); ctx.lineTo(x1, yBase); ctx.stroke(); // 바닥선
-  daily.forEach((d, i) => {
-    const bx = x0 + i * slot + (slot - bw) / 2;
-    const h = d.hasData ? Math.max(6, (d.min / niceMax) * maxH) : 0;
-    const col = !d.hasData ? "#3a4260" : d.acc >= 70 ? "#4fd07a" : d.acc >= 40 ? "#f59e2b" : "#ff7a7a";
-    if (h > 0) {
-      ctx.fillStyle = col; ctx.globalAlpha = d.today ? 1 : 0.82;
-      roundRect(ctx, bx, yBase - h, bw, h, 8); ctx.fill(); ctx.globalAlpha = 1;
-      if (d.today) { ctx.strokeStyle = "#5abe5a"; ctx.lineWidth = 3; roundRect(ctx, bx, yBase - h, bw, h, 8); ctx.stroke(); }
-      ctx.fillStyle = "#8b98a5"; ctx.font = "700 22px sans-serif"; ctx.textAlign = "center";
-      ctx.fillText(`${d.acc}%`, bx + bw / 2, yBase - h - 12);
-    }
-    ctx.fillStyle = d.today ? "#5abe5a" : "#8b98a5"; ctx.font = `${d.today ? "700 " : ""}24px sans-serif`; ctx.textAlign = "center";
-    ctx.fillText(d.label, bx + bw / 2, yBase + 34);
-  });
+  ctx.fillText("최근 7일 공부시간", 64, 800);
+  if (_ChartLib) {
+    const bw = 592, bh = 250, bx0 = 64, by0 = 820;
+    const barCol = (d) => (!d.hasData ? "#3a4260" : d.acc >= 70 ? "#4fd07a" : d.acc >= 40 ? "#f59e2b" : "#ff7a7a");
+    const { cv, chart } = renderChart(bw, bh, {
+      type: "bar",
+      data: {
+        labels: daily.map((d) => d.label),
+        datasets: [{
+          data: daily.map((d) => d.min),
+          backgroundColor: daily.map(barCol),
+          borderColor: daily.map((d) => (d.today ? "#5abe5a" : "transparent")),
+          borderWidth: daily.map((d) => (d.today ? 3 : 0)),
+          borderRadius: 8, borderSkipped: false, maxBarThickness: 46,
+        }],
+      },
+      options: {
+        layout: { padding: { top: 26 } },
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: {
+          x: { grid: { display: false }, border: { color: "#2a323c" }, ticks: { color: "#8b98a5", font: { size: 20 } } },
+          y: { beginAtZero: true, grid: { color: "#232a33" }, border: { display: false }, ticks: { color: "#8b98a5", font: { size: 16 }, callback: (v) => v + "분", maxTicksLimit: 4 } },
+        },
+      },
+    });
+    // 막대 위 정확도 % 라벨 — chart meta 좌표로 카드에 직접
+    const meta = chart.getDatasetMeta(0);
+    ctx.drawImage(cv, bx0, by0);
+    daily.forEach((d, i) => {
+      if (!d.hasData) return;
+      const el = meta.data[i];
+      ctx.fillStyle = d.today ? "#5abe5a" : "#8b98a5"; ctx.font = "700 22px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText(`${d.acc}%`, bx0 + el.x, by0 + el.y - 14);
+    });
+    chart.destroy();
+  }
 
   // ── 하단: 부가 통계 + 앱 브랜딩 (앱 사용 증거) ──
   ctx.textAlign = "center";
   const extra = [];
   if (info.streak > 0) extra.push(`연속 출석 ${info.streak}일`);
   if (info.blinkAvg != null) extra.push(`눈 깜빡임 ${info.blinkAvg}회/분`);
-  if (extra.length) { ctx.fillStyle = "#8b98a5"; ctx.font = "600 26px sans-serif"; ctx.fillText(extra.join("   ·   "), W / 2, 1108); }
+  if (extra.length) { ctx.fillStyle = "#8b98a5"; ctx.font = "600 26px sans-serif"; ctx.fillText(extra.join("   ·   "), W / 2, 1120); }
   ctx.fillStyle = "#5abe5a"; ctx.font = "700 26px sans-serif";
-  ctx.fillText(`척추요정  ·  ${APP_URL}`, W / 2, 1160);
+  ctx.fillText(`척추요정  ·  ${APP_URL}`, W / 2, 1168);
 
   const blob = await new Promise((r) => c.toBlob(r, "image/png"));
   return { blob, ext: "png", shareable: true, frames: 0 };
