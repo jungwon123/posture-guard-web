@@ -1977,36 +1977,53 @@ function shareUiReset() {
   $("tl-tab-video").classList.toggle("on", shareMode === "tl");
   $("tl-tab-stats").classList.toggle("on", shareMode === "stats");
 }
+// 공유 통계 카드용 차트 집계 — 통계창(PostureChart)과 동일 데이터·색상
+const SHARE_C = { GOOD: "#4fd07a", CAUTION: "#f59e2b", BAD: "#ff7a7a", AWAY: "#9aa6c9" };
+function shareChartData(now, t0) {
+  const seg = (start, end, keys) => {
+    const acc = {}; keys.forEach((k) => (acc[k] = 0));
+    for (let i = 0; i < events.length; i++) {
+      const st = events[i].to; if (!(st in acc)) continue;
+      const s = Math.max(events[i].t, start), e = Math.min(i + 1 < events.length ? events[i + 1].t : now, end);
+      if (e > s) acc[st] += e - s;
+    }
+    return acc;
+  };
+  // 오늘 자세 비율(도넛) — GOOD/CAUTION/BAD/AWAY
+  const stt = seg(t0, now, ["GOOD", "CAUTION", "BAD", "AWAY"]);
+  const btot = stt.GOOD + stt.CAUTION + stt.BAD + stt.AWAY;
+  const donut = [
+    { label: "바른 자세", value: stt.GOOD, color: SHARE_C.GOOD },
+    { label: "주의", value: stt.CAUTION, color: SHARE_C.CAUTION },
+    { label: "나쁜 자세", value: stt.BAD, color: SHARE_C.BAD },
+    { label: "자리 비움", value: stt.AWAY, color: SHARE_C.AWAY },
+  ].filter((x) => x.value > 0);
+  const goodPct = btot > 0 ? Math.round((stt.GOOD / btot) * 100) : 0;
+  // 최근 7일 공부시간·정확도(막대)
+  const WD = ["일", "월", "화", "수", "목", "금", "토"];
+  const daily = [];
+  for (let k = 6; k >= 0; k--) {
+    const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - k);
+    const s = d.getTime() / 1000, e = Math.min(s + 86400, now);
+    const a = seg(s, e, ["GOOD", "CAUTION", "BAD"]);
+    const study = a.GOOD + a.CAUTION + a.BAD;
+    daily.push({ label: WD[d.getDay()], min: Math.round(study / 60),
+      acc: study > 0 ? Math.round((a.GOOD / study) * 100) : 0, hasData: study > 0, today: k === 0 });
+  }
+  return { donut, goodPct, btot, daily };
+}
 async function pickShareMode(mode) {
   shareMode = mode;
   shareUiReset();
   if (mode === "stats") {
-    const rep = computeReport(events, dayStartSec(), nowSec());
-    // 실제 통계 4종: 바른 자세 시간 · 바름 비율 · 연속 출석 · 눈 깜빡임(없으면 잎사귀 포인트)
-    const streak = attendStreak();
-    const bt = blinkTodayStats();
-    const stats = [
-      { value: `${Math.round(rep.good / 60)}분`, label: "바른 자세" },
-      { value: rep.ratio !== null ? `${Math.round(rep.ratio * 100)}%` : "-", label: "바름 비율" },
-      { value: streak > 0 ? `${streak}일` : "1일", label: "연속 출석" },
-      bt.avg != null
-        ? { value: `${bt.avg}`, label: "눈 깜빡임/분" }
-        : { value: `${rewards.points}`, label: "잎사귀" },
-    ];
-    // 가장 오래 공부한 과목 (있을 때만)
-    let subjectLine = null;
-    try {
-      const acc = computeSubjects(events, readSubjLog(), dayStartSec(), nowSec());
-      const names = Object.fromEntries(readSubjects().map((s) => [s.id, s.name]));
-      const top = Object.entries(acc).filter(([k]) => k !== "_none")
-        .sort((a, b) => b[1].watched - a[1].watched)[0];
-      if (top && top[1].watched >= 60) subjectLine = `가장 오래 공부한 과목 · ${names[top[0]] || "기타"} ${Math.round(top[1].watched / 60)}분`;
-    } catch {}
+    const now = nowSec(), t0 = dayStartSec();
+    const rep = computeReport(events, t0, now);
     statsResult = await tlx.makeStatsCard({
       date: new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" }),
       time: tlx.hudTime(rep.watched),
-      stats,
-      subjectLine,
+      ...shareChartData(now, t0), // 통계창과 동일: 오늘 자세비율 도넛 + 최근 7일 막대
+      streak: attendStreak(),
+      blinkAvg: blinkTodayStats().avg,
       fairy: els.fairyImg,
     });
     const img = $("tl-img");

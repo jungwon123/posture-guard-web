@@ -215,6 +215,7 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
   ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
 }
+const fmtMin = (sec) => Math.round(sec / 60) + "분";
 export async function makeStatsCard(info) {
   const { W, H } = TL;
   const c = document.createElement("canvas"); c.width = W; c.height = H;
@@ -224,37 +225,76 @@ export async function makeStatsCard(info) {
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
   ctx.textAlign = "center";
   // 헤더
-  ctx.fillStyle = "#e7ecf1"; ctx.font = "800 52px sans-serif";
-  ctx.fillText("척추요정 공부 인증", W / 2, 170);
-  ctx.fillStyle = "#8b98a5"; ctx.font = "30px sans-serif";
-  ctx.fillText(info.date, W / 2, 218);
+  ctx.fillStyle = "#e7ecf1"; ctx.font = "800 46px sans-serif";
+  ctx.fillText("척추요정 공부 인증", W / 2, 96);
+  ctx.fillStyle = "#8b98a5"; ctx.font = "26px sans-serif";
+  ctx.fillText(info.date, W / 2, 138);
   // 히어로 — 오늘 공부 시간
-  ctx.fillStyle = "#8b98a5"; ctx.font = "700 34px sans-serif";
-  ctx.fillText("오늘 공부 시간", W / 2, 340);
-  ctx.fillStyle = "#e7ecf1"; ctx.font = "800 128px sans-serif";
-  ctx.fillText(info.time, W / 2, 460);
-  // 스탯 2×2 그리드 — 실제 통계
-  const stats = (info.stats || []).slice(0, 4);
-  const cw = 300, ch = 150, gap = 24;
-  const gx = (W - cw * 2 - gap) / 2, gy = 560;
-  stats.forEach((s, i) => {
-    const x = gx + (i % 2) * (cw + gap), y = gy + Math.floor(i / 2) * (ch + gap);
-    ctx.fillStyle = "#171c22"; roundRect(ctx, x, y, cw, ch, 20); ctx.fill();
-    ctx.strokeStyle = "#2a323c"; ctx.lineWidth = 2; roundRect(ctx, x, y, cw, ch, 20); ctx.stroke();
-    ctx.fillStyle = "#5abe5a"; ctx.font = "800 58px sans-serif";
-    ctx.fillText(s.value, x + cw / 2, y + 78);
-    ctx.fillStyle = "#8b98a5"; ctx.font = "600 28px sans-serif";
-    ctx.fillText(s.label, x + cw / 2, y + 120);
-  });
-  // 과목 라인 (있을 때만)
-  let fairyY = 950;
-  if (info.subjectLine) {
-    ctx.fillStyle = "#8b98a5"; ctx.font = "600 30px sans-serif";
-    ctx.fillText(info.subjectLine, W / 2, 970);
-    fairyY = 1000;
+  ctx.fillStyle = "#8b98a5"; ctx.font = "700 28px sans-serif";
+  ctx.fillText("오늘 공부 시간", W / 2, 200);
+  ctx.fillStyle = "#e7ecf1"; ctx.font = "800 84px sans-serif";
+  ctx.fillText(info.time, W / 2, 278);
+
+  const donut = info.donut || [], btot = info.btot || 0, daily = info.daily || [];
+  // ── 도넛: 오늘 자세 비율 (통계창과 동일) ──
+  const cx = W / 2, cy = 470, rOut = 118, rIn = 76;
+  if (btot > 0) {
+    let a0 = -Math.PI / 2;
+    donut.forEach((s) => {
+      const a1 = a0 + (s.value / btot) * Math.PI * 2;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, rOut, a0, a1); ctx.closePath();
+      ctx.fillStyle = s.color; ctx.fill(); a0 = a1;
+    });
+    ctx.beginPath(); ctx.arc(cx, cy, rIn, 0, Math.PI * 2); ctx.fillStyle = "#14171e"; ctx.fill(); // 가운데 구멍
+    ctx.fillStyle = "#4fd07a"; ctx.font = "800 58px sans-serif"; ctx.fillText(`${info.goodPct}%`, cx, cy + 6);
+    ctx.fillStyle = "#8b98a5"; ctx.font = "600 24px sans-serif"; ctx.fillText("바른 자세", cx, cy + 44);
+    // 범례 2×2
+    ctx.textAlign = "left";
+    donut.slice(0, 4).forEach((s, i) => {
+      const lx = i % 2 === 0 ? W / 2 - 300 : W / 2 + 20, ly = 648 + Math.floor(i / 2) * 44;
+      ctx.fillStyle = s.color; ctx.beginPath(); ctx.arc(lx, ly - 8, 10, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#e7ecf1"; ctx.font = "24px sans-serif";
+      ctx.fillText(`${s.label} ${fmtMin(s.value)}`, lx + 24, ly);
+    });
+    ctx.textAlign = "center";
+  } else {
+    ctx.fillStyle = "#8b98a5"; ctx.font = "28px sans-serif";
+    ctx.fillText("오늘 자세 기록이 아직 없어요", W / 2, cy + 6);
   }
-  // 요정 — 하단 마무리
-  if (info.fairy?.complete && info.fairy.naturalWidth) ctx.drawImage(info.fairy, W / 2 - 100, fairyY, 200, 200);
+
+  // ── 막대: 최근 7일 공부시간 (통계창과 동일 색/라벨) ──
+  ctx.textAlign = "left"; ctx.fillStyle = "#8b98a5"; ctx.font = "700 28px sans-serif";
+  ctx.fillText("최근 7일 공부시간", 70, 762);
+  const x0 = 70, x1 = W - 70, yBase = 1010, maxH = 170;
+  const maxMin = Math.max(30, ...daily.map((d) => d.min));
+  const niceMax = Math.ceil(maxMin / 30) * 30;
+  const slot = (x1 - x0) / 7, bw = slot * 0.54;
+  ctx.strokeStyle = "#2a323c"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(x0, yBase); ctx.lineTo(x1, yBase); ctx.stroke(); // 바닥선
+  daily.forEach((d, i) => {
+    const bx = x0 + i * slot + (slot - bw) / 2;
+    const h = d.hasData ? Math.max(6, (d.min / niceMax) * maxH) : 0;
+    const col = !d.hasData ? "#3a4260" : d.acc >= 70 ? "#4fd07a" : d.acc >= 40 ? "#f59e2b" : "#ff7a7a";
+    if (h > 0) {
+      ctx.fillStyle = col; ctx.globalAlpha = d.today ? 1 : 0.82;
+      roundRect(ctx, bx, yBase - h, bw, h, 8); ctx.fill(); ctx.globalAlpha = 1;
+      if (d.today) { ctx.strokeStyle = "#5abe5a"; ctx.lineWidth = 3; roundRect(ctx, bx, yBase - h, bw, h, 8); ctx.stroke(); }
+      ctx.fillStyle = "#8b98a5"; ctx.font = "700 22px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText(`${d.acc}%`, bx + bw / 2, yBase - h - 12);
+    }
+    ctx.fillStyle = d.today ? "#5abe5a" : "#8b98a5"; ctx.font = `${d.today ? "700 " : ""}24px sans-serif`; ctx.textAlign = "center";
+    ctx.fillText(d.label, bx + bw / 2, yBase + 34);
+  });
+
+  // ── 하단: 부가 통계 + 앱 브랜딩 (앱 사용 증거) ──
+  ctx.textAlign = "center";
+  const extra = [];
+  if (info.streak > 0) extra.push(`연속 출석 ${info.streak}일`);
+  if (info.blinkAvg != null) extra.push(`눈 깜빡임 ${info.blinkAvg}회/분`);
+  if (extra.length) { ctx.fillStyle = "#8b98a5"; ctx.font = "600 26px sans-serif"; ctx.fillText(extra.join("   ·   "), W / 2, 1108); }
+  ctx.fillStyle = "#5abe5a"; ctx.font = "700 26px sans-serif";
+  ctx.fillText(`척추요정  ·  ${APP_URL}`, W / 2, 1160);
+
   const blob = await new Promise((r) => c.toBlob(r, "image/png"));
   return { blob, ext: "png", shareable: true, frames: 0 };
 }
