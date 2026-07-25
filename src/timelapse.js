@@ -203,14 +203,11 @@ export async function makeStatsCard(info) {
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, "#101418"); g.addColorStop(1, "#1a222b");
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  if (!logoImg) { logoImg = new Image(); logoImg.src = "/assets/ui/logo.png"; }
-  try { await logoImg.decode(); } catch {}
   ctx.textAlign = "center";
-  if (logoImg.naturalWidth) ctx.drawImage(logoImg, W / 2 - 44, 130, 88, 88);
   ctx.fillStyle = "#e7ecf1"; ctx.font = "800 52px sans-serif";
-  ctx.fillText("척추요정 공부 인증", W / 2, 300);
+  ctx.fillText("척추요정 공부 인증", W / 2, 250);
   ctx.fillStyle = "#8b98a5"; ctx.font = "30px sans-serif";
-  ctx.fillText(info.date, W / 2, 350);
+  ctx.fillText(info.date, W / 2, 300);
   // 중앙 — 큰 오늘 공부 시간
   ctx.fillStyle = "#8b98a5"; ctx.font = "700 36px sans-serif";
   ctx.fillText("오늘 공부 시간", W / 2, 560);
@@ -223,10 +220,8 @@ export async function makeStatsCard(info) {
   };
   stat(W / 2 - 160, info.goodMin, "바른 자세");
   stat(W / 2 + 160, info.ratio, "바름 비율");
-  // 요정
-  if (info.fairy?.complete && info.fairy.naturalWidth) ctx.drawImage(info.fairy, W / 2 - 100, 990, 200, 200);
-  ctx.fillStyle = "#5abe5a"; ctx.font = "700 30px sans-serif";
-  ctx.fillText("posture-guard-rust.vercel.app", W / 2, H - 130);
+  // 요정 — 하단 중앙 마무리
+  if (info.fairy?.complete && info.fairy.naturalWidth) ctx.drawImage(info.fairy, W / 2 - 110, 1010, 220, 220);
   const blob = await new Promise((r) => c.toBlob(r, "image/png"));
   return { blob, ext: "png", shareable: true, frames: 0 };
 }
