@@ -134,6 +134,7 @@ export function maybeCapture(video, hud, now) {
 }
 
 // 9:16 프레임 렌더 — 중앙 카메라 + 상단 로고·날짜 + 하단 타이머·바른자세 비율·요정
+const APP_URL = "posture-guard-rust.vercel.app";
 function drawFrame(ctx, video, hud) {
   const { W, H } = TL;
   ctx.fillStyle = "#101418"; ctx.fillRect(0, 0, W, H);
@@ -142,20 +143,32 @@ function drawFrame(ctx, video, hud) {
   ctx.save(); ctx.translate(W, 0); ctx.scale(-1, 1);
   ctx.drawImage(video, 0, vy, vw, vh);
   ctx.restore();
-  // 상단 — 로고 + 타이틀 + 날짜
-  if (logoImg?.complete && logoImg.naturalWidth) ctx.drawImage(logoImg, 40, 44, 64, 64);
-  ctx.fillStyle = "#e7ecf1"; ctx.font = "700 40px sans-serif"; ctx.textAlign = "left";
-  ctx.fillText("척추요정 공부 인증", 120, 88);
-  ctx.fillStyle = "#8b98a5"; ctx.font = "26px sans-serif";
-  ctx.fillText(hud.date, 122, 126);
-  // 하단 — 큰 타이머 + 비율
+  // ── 상단 브랜드 바 (반투명) — 어떤 배경 위에서도 앱 표식이 또렷하게 ──
+  ctx.fillStyle = "rgba(16,20,24,0.72)";
+  ctx.fillRect(0, 0, W, 132);
+  if (logoImg?.complete && logoImg.naturalWidth) ctx.drawImage(logoImg, 28, 34, 64, 64);
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#e7ecf1"; ctx.font = "800 38px sans-serif";
+  ctx.fillText("척추요정", 108, 66);
+  ctx.fillStyle = "#5abe5a"; ctx.font = "700 24px sans-serif";
+  ctx.fillText("자세 감지 공부 인증", 108, 102);
+  ctx.fillStyle = "#8b98a5"; ctx.font = "24px sans-serif"; ctx.textAlign = "right";
+  ctx.fillText(hud.date, W - 28, 84);
+  // ── 하단 브랜드 바 (반투명) — 타이머 + 자세 점수(앱만 만드는 값) + 앱 주소 ──
+  ctx.fillStyle = "rgba(16,20,24,0.72)";
+  ctx.fillRect(0, H - 260, W, 260);
   ctx.textAlign = "center";
-  ctx.fillStyle = "#e7ecf1"; ctx.font = "800 110px sans-serif";
-  ctx.fillText(hud.timer, W / 2, H - 170);
-  ctx.fillStyle = "#5abe5a"; ctx.font = "700 34px sans-serif";
-  ctx.fillText(hud.sub, W / 2, H - 100);
-  // 요정 스프라이트 (하단 오른쪽)
-  if (hud.fairy?.complete && hud.fairy.naturalWidth) ctx.drawImage(hud.fairy, W - 180, H - 320, 140, 140);
+  ctx.fillStyle = "#e7ecf1"; ctx.font = "800 108px sans-serif";
+  ctx.fillText(hud.timer, W / 2, H - 130);
+  if (hud.sub) {
+    ctx.fillStyle = "#5abe5a"; ctx.font = "700 34px sans-serif";
+    ctx.fillText(hud.sub, W / 2, H - 78);
+  }
+  // 앱 주소 — "우리 앱으로 만들었다"는 증거
+  ctx.fillStyle = "#8b98a5"; ctx.font = "600 26px sans-serif";
+  ctx.fillText(`척추요정 앱으로 측정  ·  ${APP_URL}`, W / 2, H - 32);
+  // 요정 스프라이트 (하단 바 위, 오른쪽)
+  if (hud.fairy?.complete && hud.fairy.naturalWidth) ctx.drawImage(hud.fairy, W - 168, H - 400, 130, 130);
   ctx.textAlign = "left";
 }
 
@@ -195,7 +208,13 @@ export async function encode(onProgress) {
   return { blob: new Blob(chunks, { type: picked.mime.split(";")[0] }), ...picked, shareable: picked.mp4, frames: keys.length };
 }
 
-// ── 오늘 통계 카드 (9:16 PNG, 즉시 생성) — 타임랩스와 같은 규격으로 인스타 스토리 공유용 ──
+// ── 오늘 통계 카드 (9:16 PNG, 즉시 생성) — 앱의 실제 통계를 담아 인스타 스토리 공유 ──
+// info = { date, time, stats:[{value,label}]×최대4, subjectLine?, fairy? }
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
 export async function makeStatsCard(info) {
   const { W, H } = TL;
   const c = document.createElement("canvas"); c.width = W; c.height = H;
@@ -204,24 +223,38 @@ export async function makeStatsCard(info) {
   g.addColorStop(0, "#101418"); g.addColorStop(1, "#1a222b");
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
   ctx.textAlign = "center";
+  // 헤더
   ctx.fillStyle = "#e7ecf1"; ctx.font = "800 52px sans-serif";
-  ctx.fillText("척추요정 공부 인증", W / 2, 250);
+  ctx.fillText("척추요정 공부 인증", W / 2, 170);
   ctx.fillStyle = "#8b98a5"; ctx.font = "30px sans-serif";
-  ctx.fillText(info.date, W / 2, 300);
-  // 중앙 — 큰 오늘 공부 시간
-  ctx.fillStyle = "#8b98a5"; ctx.font = "700 36px sans-serif";
-  ctx.fillText("오늘 공부 시간", W / 2, 560);
-  ctx.fillStyle = "#e7ecf1"; ctx.font = "800 132px sans-serif";
-  ctx.fillText(info.time, W / 2, 700);
-  // 스탯 2단 — 바른 자세 시간 · 바름 비율
-  const stat = (x, big, small) => {
-    ctx.fillStyle = "#5abe5a"; ctx.font = "800 64px sans-serif"; ctx.fillText(big, x, 880);
-    ctx.fillStyle = "#8b98a5"; ctx.font = "600 30px sans-serif"; ctx.fillText(small, x, 930);
-  };
-  stat(W / 2 - 160, info.goodMin, "바른 자세");
-  stat(W / 2 + 160, info.ratio, "바름 비율");
-  // 요정 — 하단 중앙 마무리
-  if (info.fairy?.complete && info.fairy.naturalWidth) ctx.drawImage(info.fairy, W / 2 - 110, 1010, 220, 220);
+  ctx.fillText(info.date, W / 2, 218);
+  // 히어로 — 오늘 공부 시간
+  ctx.fillStyle = "#8b98a5"; ctx.font = "700 34px sans-serif";
+  ctx.fillText("오늘 공부 시간", W / 2, 340);
+  ctx.fillStyle = "#e7ecf1"; ctx.font = "800 128px sans-serif";
+  ctx.fillText(info.time, W / 2, 460);
+  // 스탯 2×2 그리드 — 실제 통계
+  const stats = (info.stats || []).slice(0, 4);
+  const cw = 300, ch = 150, gap = 24;
+  const gx = (W - cw * 2 - gap) / 2, gy = 560;
+  stats.forEach((s, i) => {
+    const x = gx + (i % 2) * (cw + gap), y = gy + Math.floor(i / 2) * (ch + gap);
+    ctx.fillStyle = "#171c22"; roundRect(ctx, x, y, cw, ch, 20); ctx.fill();
+    ctx.strokeStyle = "#2a323c"; ctx.lineWidth = 2; roundRect(ctx, x, y, cw, ch, 20); ctx.stroke();
+    ctx.fillStyle = "#5abe5a"; ctx.font = "800 58px sans-serif";
+    ctx.fillText(s.value, x + cw / 2, y + 78);
+    ctx.fillStyle = "#8b98a5"; ctx.font = "600 28px sans-serif";
+    ctx.fillText(s.label, x + cw / 2, y + 120);
+  });
+  // 과목 라인 (있을 때만)
+  let fairyY = 950;
+  if (info.subjectLine) {
+    ctx.fillStyle = "#8b98a5"; ctx.font = "600 30px sans-serif";
+    ctx.fillText(info.subjectLine, W / 2, 970);
+    fairyY = 1000;
+  }
+  // 요정 — 하단 마무리
+  if (info.fairy?.complete && info.fairy.naturalWidth) ctx.drawImage(info.fairy, W / 2 - 100, fairyY, 200, 200);
   const blob = await new Promise((r) => c.toBlob(r, "image/png"));
   return { blob, ext: "png", shareable: true, frames: 0 };
 }

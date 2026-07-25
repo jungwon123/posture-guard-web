@@ -1982,11 +1982,31 @@ async function pickShareMode(mode) {
   shareUiReset();
   if (mode === "stats") {
     const rep = computeReport(events, dayStartSec(), nowSec());
+    // 실제 통계 4종: 바른 자세 시간 · 바름 비율 · 연속 출석 · 눈 깜빡임(없으면 잎사귀 포인트)
+    const streak = attendStreak();
+    const bt = blinkTodayStats();
+    const stats = [
+      { value: `${Math.round(rep.good / 60)}분`, label: "바른 자세" },
+      { value: rep.ratio !== null ? `${Math.round(rep.ratio * 100)}%` : "-", label: "바름 비율" },
+      { value: streak > 0 ? `${streak}일` : "1일", label: "연속 출석" },
+      bt.avg != null
+        ? { value: `${bt.avg}`, label: "눈 깜빡임/분" }
+        : { value: `${rewards.points}`, label: "잎사귀" },
+    ];
+    // 가장 오래 공부한 과목 (있을 때만)
+    let subjectLine = null;
+    try {
+      const acc = computeSubjects(events, readSubjLog(), dayStartSec(), nowSec());
+      const names = Object.fromEntries(readSubjects().map((s) => [s.id, s.name]));
+      const top = Object.entries(acc).filter(([k]) => k !== "_none")
+        .sort((a, b) => b[1].watched - a[1].watched)[0];
+      if (top && top[1].watched >= 60) subjectLine = `가장 오래 공부한 과목 · ${names[top[0]] || "기타"} ${Math.round(top[1].watched / 60)}분`;
+    } catch {}
     statsResult = await tlx.makeStatsCard({
       date: new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" }),
       time: tlx.hudTime(rep.watched),
-      goodMin: `${Math.round(rep.good / 60)}분`,
-      ratio: rep.ratio !== null ? `${Math.round(rep.ratio * 100)}%` : "-",
+      stats,
+      subjectLine,
       fairy: els.fairyImg,
     });
     const img = $("tl-img");
