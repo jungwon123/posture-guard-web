@@ -48,6 +48,11 @@ function aggregate(events, start, end, now) {
   const study = good + caution + bad;
   return { study, good, caution, bad, longestGood, ratio: study > 0 ? good / study : null };
 }
+// 마지막(열린) 자리비움 구간이 벽시계 now까지 늘어나 무한 누적되는 걸 막는 grace 캡.
+// 측정을 켠 채 자리를 오래 비우면 "자리비움"이 계속 자라 보이는데(예: 54분·664분),
+// 이건 공부 세션이 아니므로 최대 2분까지만 집계한다. 세션 중간에 잠깐 뜬 자리비움은
+// 뒤에 공부 이벤트가 뒤따라 이미 유한하므로 캡 대상이 아니다(마지막 이벤트일 때만 캡).
+const AWAY_TRAIL_CAP = 120;
 // 구간의 상태별(GOOD/CAUTION/BAD/AWAY) 누적 초
 function stateTotals(events, start, end, now) {
   const acc = { GOOD: 0, CAUTION: 0, BAD: 0, AWAY: 0 };
@@ -55,7 +60,8 @@ function stateTotals(events, start, end, now) {
     const st = events[i].to;
     if (!(st in acc)) continue;
     const s = Math.max(events[i].t, start);
-    const e = Math.min(i + 1 < events.length ? events[i + 1].t : now, end);
+    let e = Math.min(i + 1 < events.length ? events[i + 1].t : now, end);
+    if (st === "AWAY" && i === events.length - 1) e = Math.min(e, events[i].t + AWAY_TRAIL_CAP);
     if (e > s) acc[st] += e - s;
   }
   return acc;

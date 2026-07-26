@@ -1984,11 +1984,15 @@ function shareUiReset() {
 // 공유 통계 카드용 차트 집계 — 통계창(PostureChart)과 동일 데이터·색상
 const SHARE_C = { GOOD: "#4fd07a", CAUTION: "#f59e2b", BAD: "#ff7a7a", AWAY: "#9aa6c9" };
 function shareChartData(now, t0) {
+  // AWAY_TRAIL_CAP: 마지막(열린) 자리비움 구간을 최대 2분까지만 — 측정 방치 시 벽시계까지 무한 누적 방지.
+  const AWAY_TRAIL_CAP = 120;
   const seg = (start, end, keys) => {
     const acc = {}; keys.forEach((k) => (acc[k] = 0));
     for (let i = 0; i < events.length; i++) {
       const st = events[i].to; if (!(st in acc)) continue;
-      const s = Math.max(events[i].t, start), e = Math.min(i + 1 < events.length ? events[i + 1].t : now, end);
+      const s = Math.max(events[i].t, start);
+      let e = Math.min(i + 1 < events.length ? events[i + 1].t : now, end);
+      if (st === "AWAY" && i === events.length - 1) e = Math.min(e, events[i].t + AWAY_TRAIL_CAP);
       if (e > s) acc[st] += e - s;
     }
     return acc;
