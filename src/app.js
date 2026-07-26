@@ -246,18 +246,21 @@ let lastActivePersist = 0;
 const IDLE_GAP_SEC = 5;  // 틱 공백이 이보다 크면 백그라운드/절전 복귀로 보고 직전 세그먼트를 그 시점에 끊음.
 let lastResult = null;
 let events = store.loadEvents();
-// 부팅 복구 — 측정 중 앱이 꺼지면(새로고침·강제종료) 마지막 GOOD/CAUTION/BAD 세그먼트가 열린 채 남고,
+// 부팅 복구 — 측정 중 앱이 꺼지면(새로고침·강제종료) 마지막 세그먼트가 열린 채 남고,
 // 카메라를 다시 안 켜면 타이머·차트가 벽시계 시간만큼 부풀어 보인다(예: 13시간).
-// 마지막 실제 감지 시각(pg_last_active)에서 AWAY로 닫아 영구 수리한다.
+// 마지막 실제 감지 시각(pg_last_active)에서 OFF(꺼짐)로 닫아 영구 수리한다.
+// ※ AWAY로 닫으면 안 된다 — 트레일링 AWAY도 벽시계까지 늘어나 통계에 "자리비움 664분"으로
+//   부풀어 보인다. OFF는 어떤 집계에도 포함되지 않는 순수 종료 마커라 앱을 안 쓴 시간이 새지 않는다.
+//   기존에 AWAY로 봉인돼 새던 기록도, 이제 트레일링 AWAY까지 OFF로 다시 봉인해 자동 치유한다.
 (() => {
   const last = events[events.length - 1];
-  if (!last || !["GOOD", "CAUTION", "BAD"].includes(last.to)) return;
+  if (!last || !["GOOD", "CAUTION", "BAD", "AWAY"].includes(last.to)) return;
   const now = nowSec();
   const cut = Math.max(last.t, Math.min(lastActiveSec || last.t, now));
   // 페이지 로드 직후엔 측정이 절대 돌고 있지 않으므로 조건 없이 항상 봉인한다.
   // (직전 활동이 5초 이내라고 건너뛰면, 측정 중 새로고침 시 열린 세그먼트가 남아
   //  카메라를 다시 켤 때까지 공부시간·바른자세%가 벽시계만큼 계속 자란다.)
-  events.push({ t: cut, from: last.to, to: "AWAY" });
+  events.push({ t: cut, from: last.to, to: "OFF" });
   store.saveEvents(events);
 })();
 
@@ -630,8 +633,9 @@ async function start() {
 function stop() {
   writeDailySnapshot(computeReport(events, dayStartSec(), nowSec())); // 오늘 일별 집계 스냅샷(캘린더)
   writeDailySubjSnapshot(localDateStr(), computeSubjects(events, readSubjLog(), dayStartSec(), nowSec())); // 과목별(P0)
-  // 열린 GOOD/BAD 세그먼트를 지금 시점에 닫아, 정지 후에도 시간이 계속 누적되지 않게 함.
-  if (running && ["GOOD", "CAUTION", "BAD"].includes(sm.state)) { logTransition(sm.state, "AWAY", nowSec()); sm.state = "AWAY"; }
+  // 열린 세그먼트를 지금 시점에 OFF(꺼짐)로 닫아, 정지 후에도 시간이 계속 누적되지 않게 함.
+  // AWAY 상태에서 종료해도 봉인해야 트레일링 AWAY가 벽시계까지 늘어나 "자리비움"으로 부푸는 걸 막는다.
+  if (running && ["GOOD", "CAUTION", "BAD", "AWAY"].includes(sm.state)) { logTransition(sm.state, "OFF", nowSec()); sm.state = "OFF"; }
   running = false;
   uploadStats(); // 세그먼트 닫힌 뒤 최종 집계 1회
   window.__pgLive = { running: false }; // 도우미에게 카메라 꺼짐 알림

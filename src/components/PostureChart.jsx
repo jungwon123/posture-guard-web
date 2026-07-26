@@ -6,6 +6,7 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   BarChart, Bar, Cell, PieChart, Pie, ReferenceArea, LabelList,
 } from "recharts";
+import { computeSubjects, readSubjLog, readSubjects } from "../subjects.js";
 
 const nowSec = () => Date.now() / 1000;
 const dayStartSec = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime() / 1000; };
@@ -149,7 +150,25 @@ function readData() {
   }));
   const blinkAvg = blink.length ? Math.round(blink.reduce((a, b) => a + b.rate, 0) / blink.length) : null;
 
-  return { series, daily, dailyHasData, breakdown, breakdownTotal, today, thisWeek, lastWeek, log, blink, blinkAvg, trend };
+  // ⑤ 오늘 과목별 공부 시간 — computeSubjects(자세상태 × 과목 라벨 교집합).
+  // 착석(GOOD/CAUTION/BAD) 구간만 과목에 잡히고 AWAY/OFF(자리비움·꺼짐)는 자동 제외된다.
+  const subjDefs = readSubjects();
+  const subjMeta = Object.fromEntries(subjDefs.map((s) => [s.id, s]));
+  const subjRaw = computeSubjects(events, readSubjLog(), t0, now);
+  const subjects = Object.entries(subjRaw)
+    .filter(([, v]) => v.watched >= 60) // 1분 미만은 잡음이라 숨김
+    .map(([id, v]) => ({
+      id,
+      name: id === "_none" ? "일반 공부" : (subjMeta[id]?.name || "과목"),
+      color: id === "_none" ? C_AWAY : (subjMeta[id]?.color || "#8a94b3"),
+      sec: v.watched,
+      ratio: v.watched > 0 ? v.good / v.watched : 0,
+    }))
+    .sort((a, b) => b.sec - a.sec);
+  const subjTotal = subjects.reduce((s, x) => s + x.sec, 0);
+  const subjMax = Math.max(1, ...subjects.map((x) => x.sec));
+
+  return { series, daily, dailyHasData, breakdown, breakdownTotal, today, thisWeek, lastWeek, log, blink, blinkAvg, trend, subjects, subjTotal, subjMax };
 }
 
 // 월간 추세 배너 — 기울기 부호로 격려/주의. 데이터 부족하면 안내만.
@@ -203,7 +222,7 @@ export default function PostureChart() {
   useEffect(() => { setD(readData()); }, [tab]);
 
   const hasHourly = d.series.length > 0;
-  const anyData = hasHourly || d.dailyHasData || d.breakdownTotal > 0 || d.blink.length > 0;
+  const anyData = hasHourly || d.dailyHasData || d.breakdownTotal > 0 || d.blink.length > 0 || d.subjects.length > 0;
   const t = d.today;
   const blinkMax = Math.max(25, ...d.blink.map((x) => x.rate)); // 정상 20 + 여유
   const pieData = d.breakdown.map((x) => ({ ...x, _total: d.breakdownTotal }));
@@ -330,6 +349,27 @@ export default function PostureChart() {
                   </AreaChart>
                 </ResponsiveContainer>
                 <p className="hint">분당 15~20회가 정상이에요{d.blinkAvg != null ? ` · 오늘 평균 ${d.blinkAvg}회` : ""}. 낮으면 눈이 건조할 수 있어요. 잠깐 먼 곳을 봐요.</p>
+              </section>
+            )}
+
+            {/* ⑤ 오늘 과목별 공부 시간 */}
+            {d.subjects.length > 0 && (
+              <section className="chart-sub">
+                <div className="chart-title">오늘 과목별 공부 시간</div>
+                <div className="subj-list">
+                  {d.subjects.map((s) => (
+                    <div className="subj-row" key={s.id}>
+                      <div className="subj-head">
+                        <span className="subj-name"><i style={{ background: s.color }} />{s.name}</span>
+                        <span className="subj-min">{fmtMin(s.sec)}<em>바름 {Math.round(s.ratio * 100)}%</em></span>
+                      </div>
+                      <div className="subj-bar">
+                        <span style={{ width: `${Math.round((s.sec / d.subjMax) * 100)}%`, background: s.color }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="hint">과목 칩으로 공부한 시간을 과목별로 나눈 거예요{d.subjTotal > 0 ? ` · 합계 ${fmtMin(d.subjTotal)}` : ""}. 자리비움·꺼짐 시간은 빠집니다.</p>
               </section>
             )}
           </div>
