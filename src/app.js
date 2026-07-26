@@ -633,6 +633,7 @@ async function start() {
 function stop() {
   writeDailySnapshot(computeReport(events, dayStartSec(), nowSec())); // 오늘 일별 집계 스냅샷(캘린더)
   writeDailySubjSnapshot(localDateStr(), computeSubjects(events, readSubjLog(), dayStartSec(), nowSec())); // 과목별(P0)
+  tlx.endSession(); // 타임랩스 출력 길이 정규화용 — 세션 종료 시각 고정(종료 후 공유해도 길이 안 부풀림)
   // 열린 세그먼트를 지금 시점에 OFF(꺼짐)로 닫아, 정지 후에도 시간이 계속 누적되지 않게 함.
   // AWAY 상태에서 종료해도 봉인해야 트레일링 AWAY가 벽시계까지 늘어나 "자리비움"으로 부푸는 걸 막는다.
   if (running && ["GOOD", "CAUTION", "BAD", "AWAY"].includes(sm.state)) { logTransition(sm.state, "OFF", nowSec()); sm.state = "OFF"; }

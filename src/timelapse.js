@@ -35,6 +35,16 @@ export class FrameBudget {
 // 출력 길이(초) — 프레임 수 기준
 export const durationSec = (frames, fps = TL.FPS) => frames / fps;
 
+// 공부 시간(초) → 출력 타임랩스 길이(초). 분당 0.25초, 5~20초로 클램프.
+// 예: 20분=5초 · 40분=10초 · 1시간=15초 · 80분+=20초.
+// 출력 길이를 "저장된 프레임 수"가 아니라 "공부한 시간"의 함수로 고정해, 기기 성능·감지 편차와
+// 무관하게 같은 시간 공부하면 같은 길이가 나오게 한다(encode가 프레임을 이 길이에 맞춰 리샘플).
+export function outSecForStudy(studySec) {
+  const PER_MIN = 0.25, MIN = 5, MAX = 20;
+  const s = (studySec > 0 ? studySec : 0) / 60 * PER_MIN;
+  return Math.max(MIN, Math.min(MAX, s));
+}
+
 // HUD 타이머 텍스트 — 세션 경과(초) → "H:MM:SS" 또는 "MM:SS"
 export function hudTime(sec) {
   sec = Math.max(0, Math.floor(sec));
@@ -92,6 +102,7 @@ export class FrameStore {
 // ── 캡처 세션 (app.js가 사용) ──
 let store = null, budget = null, capCanvas = null, busy = false;
 let logoImg = null;
+let sessionStartClock = 0, sessionEndClock = 0; // 이번 세션 시작/종료 벽시계(초) — 출력 길이 정규화용
 // 디버그 카운터 — 실기기에서 "왜 안 찍히나"를 바로 진단 (window.__tlDebug)
 const dbg = { calls: 0, notReady: 0, busySkip: 0, notDue: 0, noVideo: 0, drawn: 0, stored: 0, putErr: 0, lastErr: null };
 if (typeof window !== "undefined") window.__tlDebug = () => ({ ...dbg, hasStore: !!store, hasBudget: !!budget, busy, count: budget?.count ?? -1, gap: budget?.gap });
@@ -105,8 +116,16 @@ export async function beginSession() {
   await ensureStore();
   await store.clear();
   budget = new FrameBudget();
+  sessionStartClock = Date.now() / 1000; sessionEndClock = 0;
+  try { localStorage.setItem("pg_tl_start", String(Math.round(sessionStartClock))); localStorage.removeItem("pg_tl_end"); } catch {}
   if (!capCanvas) { capCanvas = document.createElement("canvas"); capCanvas.width = TL.W; capCanvas.height = TL.H; }
   if (!logoImg) { logoImg = new Image(); logoImg.src = "/assets/ui/logo.png"; }
+}
+
+// 세션 종료 시각 고정 — 종료 후 한참 뒤에 공유해도 공부 길이가 부풀지 않게 한다(app.js stop()에서 호출).
+export function endSession() {
+  sessionEndClock = Date.now() / 1000;
+  try { localStorage.setItem("pg_tl_end", String(Math.round(sessionEndClock))); } catch {}
 }
 
 export function frameCount() { return budget ? budget.count : 0; }
@@ -194,23 +213,40 @@ export async function encode(onProgress) {
   const done = new Promise((res) => { rec.onstop = res; });
   rec.start(1000);
   const gap = 1000 / TL.FPS;
+
+  // 공부 시간 → 목표 출력 프레임 수. 저장 프레임을 이 수에 맞춰 균등 리샘플링해서
+  // 기기·저장수와 무관하게 "공부시간에 비례한 일정 길이"를 낸다.
+  //  · 저장 > 목표 : 균등하게 솎아 재생(다운샘플)  · 저장 < 목표 : 프레임을 반복(업샘플, 캐시로 재디코드 없음)
+  let startSec = sessionStartClock || +(localStorage.getItem("pg_tl_start") || 0);
+  let endSec = sessionEndClock || +(localStorage.getItem("pg_tl_end") || 0);
+  const nowSec = Date.now() / 1000;
+  const studySec = startSec ? Math.max(0, (endSec || nowSec) - startSec) : keys.length * TL.BASE_GAP;
+  const target = Math.max(TL.MIN_FRAMES, Math.round(outSecForStudy(studySec) * TL.FPS));
+  // plan[j] = j번째 출력 프레임이 쓸 keys 인덱스 (0..target-1 을 keys 구간에 균등 매핑, 단조증가)
+  const plan = [];
+  for (let j = 0; j < target; j++) plan.push(Math.min(keys.length - 1, Math.floor((j * keys.length) / target)));
+
   let next = performance.now();
-  for (let i = 0; i < keys.length; i++) {
-    const blob = await store.get(keys[i]);
-    if (blob) {
-      const bmp = await createImageBitmap(blob);
-      ctx.drawImage(bmp, 0, 0, TL.W, TL.H);
-      bmp.close();
+  let curKi = -1, curBmp = null;
+  for (let i = 0; i < plan.length; i++) {
+    const ki = plan[i];
+    if (ki !== curKi) { // 인덱스가 넘어갈 때만 새로 디코드 (반복 프레임은 캐시 재사용)
+      if (curBmp) curBmp.close();
+      const blob = await store.get(keys[ki]);
+      curBmp = blob ? await createImageBitmap(blob) : null;
+      curKi = ki;
     }
-    onProgress?.(i + 1, keys.length);
+    if (curBmp) ctx.drawImage(curBmp, 0, 0, TL.W, TL.H);
+    onProgress?.(i + 1, plan.length);
     next += gap;
     const wait = next - performance.now();
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   }
+  if (curBmp) curBmp.close();
   await new Promise((r) => setTimeout(r, 300)); // 마지막 프레임 플러시
   rec.stop();
   await done;
-  return { blob: new Blob(chunks, { type: picked.mime.split(";")[0] }), ...picked, shareable: picked.mp4, frames: keys.length };
+  return { blob: new Blob(chunks, { type: picked.mime.split(";")[0] }), ...picked, shareable: picked.mp4, frames: plan.length };
 }
 
 // ── 오늘 통계 카드 (9:16 PNG, 즉시 생성) — 앱의 실제 통계를 담아 인스타 스토리 공유 ──
