@@ -369,7 +369,7 @@ export default function PostureChart() {
                         <span className="subj-name"><i style={{ background: s.color }} />{s.name}</span>
                         <span className="subj-min">{fmtMin(s.sec)}<em>바름 {Math.round(s.ratio * 100)}%</em></span>
                       </div>
-                      <div className="subj-bar">
+                      <div className="subj-gauge">
                         <span style={{ width: `${Math.round((s.sec / d.subjMax) * 100)}%`, background: s.color }} />
                       </div>
                     </div>

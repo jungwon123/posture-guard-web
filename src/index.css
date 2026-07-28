@@ -772,8 +772,9 @@
 .subj-name i { width: 10px; height: 10px; border-radius: 4px; display: inline-block; flex: none; }
 .subj-min { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .subj-min em { color: var(--dim); font-weight: 500; font-style: normal; font-size: 12px; margin-left: 7px; }
-.subj-bar { height: 8px; border-radius: 6px; background: var(--line); overflow: hidden; }
-.subj-bar span { display: block; height: 100%; border-radius: 6px; min-width: 3px; }
+/* subj-gauge: 통계 전용 막대 트랙 — .subj-bar(메인 과목 칩 컨테이너)와 이름 충돌 금지 */
+.subj-gauge { height: 8px; border-radius: 6px; background: var(--line); overflow: hidden; }
+.subj-gauge span { display: block; height: 100%; border-radius: 6px; min-width: 3px; }
 
 .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 4px 0 12px; }
 .stat { background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
